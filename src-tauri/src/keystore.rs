@@ -1,94 +1,192 @@
-//! API 金鑰存在作業系統的鑰匙圈（macOS 鑰匙圈、Windows 認證管理員），不存在檔案或網頁資料裡。
+//! API 金鑰存在使用者資料夾的一個檔案（只有自己的帳號能讀），和命令列工具 ai-call、use-api 共用。
+//! 位置與格式和 cli/shared/key-file.ts 相同：預設 ~/.config/api-chat/anthropic.env，內容一行 ANTHROPIC_API_KEY=<金鑰>。
 
-use keyring_core::{Entry, Error};
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
-pub const SERVICE: &str = "io.github.arce0406.apichat";
-pub const ACCOUNT: &str = "anthropic-api-key";
+pub const KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
 
-/// 啟動時選定這個平台的鑰匙圈。不支援的平台（例如 Linux 開發版）回傳原因，介面會顯示出來。
-pub fn init() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let store = apple_native_keyring_store::keychain::Store::new().map_err(describe)?;
-        keyring_core::set_default_store(store);
-        Ok(())
+/// API_CHAT_KEY_FILE 可指定完整路徑；否則 $XDG_CONFIG_HOME/api-chat/anthropic.env，再否則 ~/.config/api-chat/anthropic.env
+pub fn key_file_path(env: impl Fn(&str) -> Option<String>, home: &Path) -> PathBuf {
+    if let Some(path) = env("API_CHAT_KEY_FILE").filter(|v| !v.is_empty()) {
+        return PathBuf::from(path);
     }
-    #[cfg(target_os = "windows")]
-    {
-        let store = windows_native_keyring_store::Store::new().map_err(describe)?;
-        keyring_core::set_default_store(store);
-        Ok(())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        // 開發版在 Linux 上做畫面測試用：存在記憶體，關掉就消失。正式版不會編進這段。
-        #[cfg(debug_assertions)]
-        if std::env::var("API_CHAT_DEV_MEMORY_KEYCHAIN").as_deref() == Ok("1") {
-            keyring_core::set_default_store(keyring_core::mock::Store::new().map_err(describe)?);
-            return Ok(());
+    let config_home = env("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+    config_home.join("api-chat").join("anthropic.env")
+}
+
+/// 解析 KEY=VALUE（忽略空行、# 註解、export 前綴、成對引號），和命令列工具的 parseEnvFile 相同
+fn parse_value(content: &str, variable: &str) -> Option<String> {
+    let mut found = None;
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
         }
-        Err("這個作業系統的鑰匙圈還不支援，目前只支援 Windows 與 macOS。".into())
+        let line = line.strip_prefix("export ").map(str::trim_start).unwrap_or(line);
+        let Some((name, value)) = line.split_once('=') else { continue };
+        if name.trim() != variable {
+            continue;
+        }
+        let mut value = value.trim();
+        if value.len() >= 2 {
+            let first = value.as_bytes()[0];
+            if (first == b'"' || first == b'\'') && value.as_bytes()[value.len() - 1] == first {
+                value = &value[1..value.len() - 1];
+            }
+        }
+        found = Some(value.to_string());
+    }
+    found.filter(|v| !v.is_empty())
+}
+
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false)
+}
+
+pub fn read(path: &Path) -> Result<Option<String>, String> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(parse_value(&content, KEY_VARIABLE)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("讀不到金鑰檔 {}：{e}", path.display())),
     }
 }
 
-fn entry() -> Result<Entry, String> {
-    // Windows 預設的保存方式會跟著網域的漫遊設定檔同步到伺服器；改成只存在這台電腦
-    #[cfg(target_os = "windows")]
-    {
-        let modifiers = std::collections::HashMap::from([("persistence", "Local")]);
-        Entry::new_with_modifiers(SERVICE, ACCOUNT, &modifiers).map_err(describe)
+pub fn write(path: &Path, key: &str) -> Result<(), String> {
+    // 只接受可見的 ASCII，避免換行等字元寫進檔案變成別的設定
+    if key.is_empty() || !key.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+        return Err("金鑰格式不正確。".into());
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Entry::new(SERVICE, ACCOUNT).map_err(describe)
+    // 連結通常指向使用者另外管理的機密檔，不替使用者覆寫（和 use-api setup 相同）
+    if is_symlink(path) {
+        return Err(format!("{} 是連結，請直接修改它指向的檔案。", path.display()));
+    }
+    if let Some(dir) = path.parent() {
+        create_private_dir(dir).map_err(|e| format!("無法建立資料夾 {}：{e}", dir.display()))?;
+    }
+    write_private_file(path, &format!("{KEY_VARIABLE}={key}\n")).map_err(|e| format!("無法寫入 {}：{e}", path.display()))
+}
+
+/// 刪除金鑰檔；是連結時只刪連結本身。原本就沒有也算成功。
+pub fn remove(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("無法刪除 {}：{e}", path.display())),
     }
 }
 
-pub fn get() -> Result<Option<String>, String> {
-    match entry()?.get_password() {
-        Ok(key) => Ok(Some(key)),
-        Err(Error::NoEntry) => Ok(None),
-        Err(error) => Err(describe(error)),
-    }
+#[cfg(unix)]
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
 }
 
-pub fn set(key: &str) -> Result<(), String> {
-    entry()?.set_password(key).map_err(describe)
+#[cfg(not(unix))]
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    // Windows：使用者資料夾底下的檔案預設只有自己的帳號（和系統管理員）能讀
+    fs::create_dir_all(dir)
 }
 
-pub fn remove() -> Result<(), String> {
-    match entry()?.delete_credential() {
-        Ok(()) | Err(Error::NoEntry) => Ok(()),
-        Err(error) => Err(describe(error)),
-    }
+#[cfg(unix)]
+fn write_private_file(path: &Path, content: &str) -> std::io::Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    // 檔案原本就存在時，mode 不會套用，另外改一次
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    file.write_all(content.as_bytes())
 }
 
-/// 錯誤訊息只帶原因，不帶金鑰內容
-fn describe(error: Error) -> String {
-    match error {
-        Error::NoDefaultStore => "鑰匙圈還沒準備好，請重新開啟 App。".into(),
-        Error::NoStorageAccess(_) => "無法存取系統鑰匙圈，請確認有允許 API Chat 使用鑰匙圈。".into(),
-        other => format!("系統鑰匙圈回傳錯誤：{other}"),
-    }
+#[cfg(not(unix))]
+fn write_private_file(path: &Path, content: &str) -> std::io::Result<()> {
+    let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+    file.write_all(content.as_bytes())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // 用 keyring-core 內建的 mock 鑰匙圈測流程；真正的 macOS／Windows 鑰匙圈要在實機確認
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("api-chat-test-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     #[test]
-    fn set_get_remove_round_trip() {
-        keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
-        assert_eq!(get().unwrap(), None);
-        set("sk-ant-test-1").unwrap();
-        assert_eq!(get().unwrap().as_deref(), Some("sk-ant-test-1"));
-        set("sk-ant-test-2").unwrap();
-        assert_eq!(get().unwrap().as_deref(), Some("sk-ant-test-2"));
-        remove().unwrap();
-        assert_eq!(get().unwrap(), None);
-        // 沒有金鑰時刪除也算成功
-        remove().unwrap();
-        keyring_core::unset_default_store();
+    fn path_follows_override_then_xdg_then_home() {
+        let home = Path::new("/home/u");
+        let none = |_: &str| None;
+        assert_eq!(key_file_path(none, home), PathBuf::from("/home/u/.config/api-chat/anthropic.env"));
+        let xdg = |k: &str| (k == "XDG_CONFIG_HOME").then(|| "/x".to_string());
+        assert_eq!(key_file_path(xdg, home), PathBuf::from("/x/api-chat/anthropic.env"));
+        let empty_xdg = |k: &str| (k == "XDG_CONFIG_HOME").then(String::new);
+        assert_eq!(key_file_path(empty_xdg, home), PathBuf::from("/home/u/.config/api-chat/anthropic.env"));
+        let file = |k: &str| (k == "API_CHAT_KEY_FILE").then(|| "/k.env".to_string());
+        assert_eq!(key_file_path(file, home), PathBuf::from("/k.env"));
+    }
+
+    #[test]
+    fn parses_like_the_command_line_tools() {
+        assert_eq!(parse_value("ANTHROPIC_API_KEY=sk-a\n", KEY_VARIABLE).as_deref(), Some("sk-a"));
+        assert_eq!(parse_value("# c\nexport ANTHROPIC_API_KEY='sk-b'\n", KEY_VARIABLE).as_deref(), Some("sk-b"));
+        assert_eq!(parse_value("ANTHROPIC_API_KEY = \"sk-c\"\r\n", KEY_VARIABLE).as_deref(), Some("sk-c"));
+        assert_eq!(parse_value("OTHER=1\nANTHROPIC_API_KEY=\n", KEY_VARIABLE), None);
+        assert_eq!(parse_value("ANTHROPIC_API_KEY_OLD=x\n", KEY_VARIABLE), None);
+    }
+
+    #[test]
+    fn write_read_remove_round_trip() {
+        let dir = temp_dir("roundtrip");
+        let path = dir.join("nested").join("anthropic.env");
+        assert_eq!(read(&path).unwrap(), None);
+        write(&path, "sk-ant-test-1").unwrap();
+        assert_eq!(read(&path).unwrap().as_deref(), Some("sk-ant-test-1"));
+        write(&path, "sk-ant-test-2").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "ANTHROPIC_API_KEY=sk-ant-test-2\n");
+        remove(&path).unwrap();
+        assert_eq!(read(&path).unwrap(), None);
+        remove(&path).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejects_keys_that_could_inject_lines() {
+        let dir = temp_dir("inject");
+        let path = dir.join("anthropic.env");
+        assert!(write(&path, "sk-a\nOTHER=1").is_err());
+        assert!(write(&path, "sk a").is_err());
+        assert!(write(&path, "").is_err());
+        assert!(!path.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_is_private_and_symlinks_are_not_overwritten() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("perm");
+        let path = dir.join("private").join("anthropic.env");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "x").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        write(&path, "sk-ant-x").unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        let fresh = dir.join("fresh").join("anthropic.env");
+        write(&fresh, "sk-ant-y").unwrap();
+        assert_eq!(fs::metadata(fresh.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+
+        let target = dir.join("real.env");
+        fs::write(&target, "ANTHROPIC_API_KEY=sk-real\n").unwrap();
+        let link = dir.join("link.env");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(read(&link).unwrap().as_deref(), Some("sk-real"));
+        assert!(write(&link, "sk-new").is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "ANTHROPIC_API_KEY=sk-real\n");
+        remove(&link).unwrap();
+        assert!(target.exists(), "刪除連結不能刪到它指向的檔案");
+        fs::remove_dir_all(dir).unwrap();
     }
 }

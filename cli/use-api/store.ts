@@ -1,4 +1,4 @@
-// 金鑰存放。目前只有檔案方式；macOS 鑰匙圈、Windows 在實機驗證後再加。
+// 金鑰存放：使用者資料夾的檔案，和 ai-call、桌面 App 共用。
 
 import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";

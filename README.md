@@ -35,11 +35,10 @@
    xattr -cr "/Applications/API Chat.app"
    ```
 
-4. 第一次讀取金鑰時，macOS 可能詢問是否允許 API Chat 使用鑰匙圈，選「永遠允許」。更新 App 之後可能會再問一次。
-
 **資料存在哪裡**
 
-- API 金鑰：Windows 認證管理員（項目名稱 `anthropic-api-key.io.github.arce0406.apichat`，只存在這台電腦）／macOS 鑰匙圈（項目名稱 `io.github.arce0406.apichat`）。解除安裝**不會**刪除金鑰；要刪除請先在 App 的「設定 > API 金鑰」按「刪除」。
+- API 金鑰：使用者資料夾的 `.config/api-chat/anthropic.env`（Windows 是 `C:\Users\<你>\.config\api-chat\anthropic.env`），只有你的帳號能讀。命令列工具也讀這個檔，設定一次就好。在 App 的「設定 > API 金鑰」可以看到實際位置。解除安裝**不會**刪除金鑰；要刪除請先在 App 裡按「刪除」。
+- 建議在 Claude Console 幫這把金鑰設每月花費上限：萬一金鑰外洩，損失也有上限。
 - 對話、角色範本、用量：存在 App 內建網頁畫面的資料夾，只在這台電腦。位置依系統而定（Windows 一般在 `%LOCALAPPDATA%\io.github.arce0406.apichat`）。解除安裝不一定會刪除。
 
 ## 功能（第一版）
@@ -54,7 +53,7 @@
 
 ## 命令列工具
 
-給 Claude Code 等 AI 工具在終端機呼叫，費用一樣記在你的 API 金鑰。兩個工具共用同一把金鑰（`~/.config/api-chat/anthropic.env`）。
+給 Claude Code 等 AI 工具在終端機呼叫，費用一樣記在你的 API 金鑰。兩個工具和桌面版共用同一把金鑰（`~/.config/api-chat/anthropic.env`）。
 
 | 工具 | 用途 | 說明 |
 |---|---|---|
@@ -79,7 +78,8 @@ use-api setup                            # 貼上金鑰，驗證後存起來
 
 - 只連到 `https://api.anthropic.com`（網址寫死，畫面也用 CSP 限制連線對象）。
 - AI 回覆不可信：回覆裡的 HTML 一律當文字顯示、不載入外部圖片（避免透過圖片網址把對話內容帶出去）、連結只允許 http(s)／mailto 並用系統瀏覽器開，最後再經 DOMPurify 過濾。
-- 金鑰不存在對話資料庫裡。桌面版存在作業系統鑰匙圈；瀏覽器開發版只存在分頁的 sessionStorage。
+- 金鑰不存在對話資料庫裡。桌面版存在使用者資料夾的檔案（Linux／macOS 權限 600、資料夾 700；Windows 使用者資料夾預設只有自己能讀），和命令列工具共用；瀏覽器開發版只存在分頁的 sessionStorage。
+  - 沒有用作業系統鑰匙圈：在 Windows 上，同一個帳號下的程式本來就讀得到認證管理員，保護和檔案差不多；在 macOS 上，未簽章的 App 每次更新都會再詢問一次。所以選擇不多加套件、和命令列工具共用一個檔。
 - 桌面版的視窗只能顯示 App 自己的畫面，其他網址一律擋下；連結用系統瀏覽器開，只允許 http、https、mailto。
 
 ## 開發

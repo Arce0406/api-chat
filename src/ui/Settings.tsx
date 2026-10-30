@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatUsd, monthSummary, newId, type RoleTemplate, type UsageRecord } from "../core/chat.ts";
 import { PRICES_UPDATED_AT } from "../core/models.ts";
 import { platform } from "../platform/index.ts";
@@ -62,6 +62,10 @@ export function Settings(props: Props) {
 function KeyPane({ apiKey, onKeyChanged }: Props) {
   const [mode, setMode] = useState<"view" | "replace" | "confirm-remove">("view");
   const [error, setError] = useState<string | null>(null);
+  const [location, setLocation] = useState<string | null>(null);
+  useEffect(() => {
+    platform.keyStore.location?.().then(setLocation, () => setLocation(null));
+  }, []);
   return (
     <div className="stack">
       <h2>API 金鑰</h2>
@@ -78,6 +82,11 @@ function KeyPane({ apiKey, onKeyChanged }: Props) {
         </span>
       </div>
       <p className="muted small">{platform.keyStore.description} OpenAI、Gemini 之後再加。</p>
+      {location ? (
+        <p className="muted small">
+          存放位置：<code data-testid="key-location">{location}</code>
+        </p>
+      ) : null}
       {mode === "replace" ? (
         <KeyForm
           submitLabel="驗證並更換"

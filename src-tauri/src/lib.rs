@@ -1,42 +1,38 @@
-//! 桌面版外殼：視窗、金鑰（系統鑰匙圈）、存檔。介面與 API 呼叫都在網頁畫面（TypeScript）裡。
+//! 桌面版外殼：視窗、金鑰檔、存檔。介面與 API 呼叫都在網頁畫面（TypeScript）裡。
 
 mod keystore;
 
-use std::sync::OnceLock;
+use std::path::PathBuf;
 
 use tauri::webview::NewWindowResponse;
-use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
-/// 鑰匙圈初始化失敗的原因（例如不支援的平台）；成功是 None
-static KEYSTORE_ERROR: OnceLock<Option<String>> = OnceLock::new();
-
-fn keystore_ready() -> Result<(), String> {
-    match KEYSTORE_ERROR.get() {
-        Some(None) => Ok(()),
-        Some(Some(reason)) => Err(reason.clone()),
-        None => Err("鑰匙圈還沒準備好，請重新開啟 App。".into()),
-    }
-}
-
-// 鑰匙圈可能跳出系統的詢問視窗（macOS），用 async 讓等待時不卡住畫面
-#[tauri::command(async)]
-fn get_api_key() -> Result<Option<String>, String> {
-    keystore_ready()?;
-    keystore::get()
+fn key_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let home = app.path().home_dir().map_err(|e| format!("找不到使用者資料夾：{e}"))?;
+    Ok(keystore::key_file_path(|name| std::env::var(name).ok(), &home))
 }
 
 #[tauri::command(async)]
-fn set_api_key(key: String) -> Result<(), String> {
-    keystore_ready()?;
-    keystore::set(&key)
+fn get_api_key(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    keystore::read(&key_path(&app)?)
 }
 
 #[tauri::command(async)]
-fn remove_api_key() -> Result<(), String> {
-    keystore_ready()?;
-    keystore::remove()
+fn set_api_key(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    keystore::write(&key_path(&app)?, &key)
+}
+
+#[tauri::command(async)]
+fn remove_api_key(app: tauri::AppHandle) -> Result<(), String> {
+    keystore::remove(&key_path(&app)?)
+}
+
+/// 給設定頁顯示金鑰存在哪
+#[tauri::command(async)]
+fn api_key_location(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(key_path(&app)?.display().to_string())
 }
 
 /// 跳出「另存新檔」讓使用者選位置，再寫入文字。使用者取消時回傳 false。
@@ -77,12 +73,10 @@ pub fn is_external_link(url: &Url) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _ = KEYSTORE_ERROR.set(keystore::init().err());
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![get_api_key, set_api_key, remove_api_key, save_text_file])
+        .invoke_handler(tauri::generate_handler![get_api_key, set_api_key, remove_api_key, api_key_location, save_text_file])
         .setup(|app| {
             let handle = app.handle().clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
