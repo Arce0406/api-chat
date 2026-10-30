@@ -32,7 +32,16 @@ pub fn init() -> Result<(), String> {
 }
 
 fn entry() -> Result<Entry, String> {
-    Entry::new(SERVICE, ACCOUNT).map_err(describe)
+    // Windows 預設的保存方式會跟著網域的漫遊設定檔同步到伺服器；改成只存在這台電腦
+    #[cfg(target_os = "windows")]
+    {
+        let modifiers = std::collections::HashMap::from([("persistence", "Local")]);
+        Entry::new_with_modifiers(SERVICE, ACCOUNT, &modifiers).map_err(describe)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Entry::new(SERVICE, ACCOUNT).map_err(describe)
+    }
 }
 
 pub fn get() -> Result<Option<String>, String> {

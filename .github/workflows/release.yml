@@ -32,10 +32,11 @@ jobs:
       - name: 安裝 Rust（runner 內建的 rustup）
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          # 版本寫死，和本地 docker 建置用的一致
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
           if [ "${{ matrix.platform }}" = "macos-latest" ]; then
-            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+            rustup target add --toolchain 1.99.1 aarch64-apple-darwin x86_64-apple-darwin
           fi
 
       - name: 安裝套件

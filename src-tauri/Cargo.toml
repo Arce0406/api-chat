@@ -3,7 +3,7 @@ name = "api-chat"
 version = "0.1.0"
 description = "用自己的 Anthropic API 金鑰對話的桌面 App"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.90"
 publish = false
 
 [lib]

@@ -39,7 +39,7 @@
 
 **資料存在哪裡**
 
-- API 金鑰：Windows 認證管理員／macOS 鑰匙圈（項目名稱 `io.github.arce0406.apichat`）。
+- API 金鑰：Windows 認證管理員（項目名稱 `anthropic-api-key.io.github.arce0406.apichat`，只存在這台電腦）／macOS 鑰匙圈（項目名稱 `io.github.arce0406.apichat`）。解除安裝**不會**刪除金鑰；要刪除請先在 App 的「設定 > API 金鑰」按「刪除」。
 - 對話、角色範本、用量：存在 App 內建網頁畫面的資料夾，只在這台電腦。位置依系統而定（Windows 一般在 `%LOCALAPPDATA%\io.github.arce0406.apichat`）。解除安裝不一定會刪除。
 
 ## 功能（第一版）

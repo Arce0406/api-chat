@@ -20,19 +20,20 @@ fn keystore_ready() -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+// 鑰匙圈可能跳出系統的詢問視窗（macOS），用 async 讓等待時不卡住畫面
+#[tauri::command(async)]
 fn get_api_key() -> Result<Option<String>, String> {
     keystore_ready()?;
     keystore::get()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_api_key(key: String) -> Result<(), String> {
     keystore_ready()?;
     keystore::set(&key)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn remove_api_key() -> Result<(), String> {
     keystore_ready()?;
     keystore::remove()
@@ -49,7 +50,7 @@ async fn save_text_file(app: tauri::AppHandle, file_name: String, content: Strin
         .blocking_save_file();
     let Some(path) = picked else { return Ok(false) };
     let path = path.into_path().map_err(|e| format!("無法使用這個位置：{e}"))?;
-    std::fs::write(&path, content).map_err(|e| format!("存檔失敗：{e}"))?;
+    std::fs::write(&path, content).map_err(|e| format!("無法寫入檔案：{e}"))?;
     Ok(true)
 }
 
@@ -58,9 +59,9 @@ async fn save_text_file(app: tauri::AppHandle, file_name: String, content: Strin
 pub fn is_app_url(url: &Url) -> bool {
     match url.scheme() {
         // macOS／Linux：tauri://localhost
-        "tauri" => url.host_str() == Some("localhost"),
-        // Windows：http://tauri.localhost
-        "http" | "https" if url.host_str() == Some("tauri.localhost") => true,
+        "tauri" => url.host_str() == Some("localhost") && url.port().is_none(),
+        // Windows：http://tauri.localhost（不帶 port）
+        "http" | "https" if url.host_str() == Some("tauri.localhost") => cfg!(windows) && url.port().is_none(),
         // 開發模式：Vite 開發伺服器
         "http" if cfg!(debug_assertions) => {
             matches!(url.host_str(), Some("127.0.0.1") | Some("localhost")) && url.port() == Some(5310)
@@ -116,7 +117,9 @@ mod tests {
     #[test]
     fn only_app_pages_can_load() {
         assert!(is_app_url(&url("tauri://localhost/index.html")));
-        assert!(is_app_url(&url("http://tauri.localhost/")));
+        assert_eq!(is_app_url(&url("http://tauri.localhost/")), cfg!(windows));
+        assert!(!is_app_url(&url("http://tauri.localhost:8080/")));
+        assert!(!is_app_url(&url("http://tauri.localhost@evil.example/")));
         assert!(!is_app_url(&url("https://evil.example/")));
         assert!(!is_app_url(&url("https://tauri.localhost.evil.example/")));
         assert!(!is_app_url(&url("file:///C:/Users/a/secret.txt")));
