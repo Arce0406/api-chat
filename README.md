@@ -7,7 +7,7 @@
 
 ## 狀態
 
-開發中。目前完成：對話介面（瀏覽器開發版）。桌面外殼（Tauri）、金鑰存系統鑰匙圈、命令列工具、安裝檔在後續版本加入。
+開發中。目前完成：對話介面（瀏覽器開發版）、命令列工具（Linux）。桌面外殼（Tauri）、金鑰存系統鑰匙圈、Windows／macOS 安裝檔在後續版本加入。
 
 ## 功能（第一版）
 
@@ -18,6 +18,29 @@
 - 角色範本（system prompt）
 - 每則回覆顯示 token 數與估算費用，設定頁有本月每日花費
 - 淺色／深色／跟系統
+
+## 命令列工具
+
+給 Claude Code 等 AI 工具在終端機呼叫，費用一樣記在你的 API 金鑰。兩個工具共用同一把金鑰（`~/.config/api-chat/anthropic.env`）。
+
+| 工具 | 用途 | 說明 |
+|---|---|---|
+| `ai-call` | 讓 AI 把簡單的工作派給便宜的模型（摘要、翻譯、審閱、寫草稿…） | [cli/ai-call](cli/ai-call/README.md) |
+| `use-api` | Claude 訂閱額度用完時，改用 API 金鑰接續同一段 Claude Code 對話 | [cli/use-api](cli/use-api/README.md) |
+
+安裝（目前只支援 Linux，需要 Node.js 22.18 以上）：
+
+```bash
+git clone https://github.com/Arce0406/api-chat.git && cd api-chat
+npm ci --omit=dev                        # 只裝執行需要的套件；.npmrc 已設 ignore-scripts，套件不能在安裝時執行腳本
+mkdir -p ~/.local/bin ~/.claude/skills
+ln -s "$PWD/bin/ai-call" ~/.local/bin/ai-call
+ln -s "$PWD/bin/use-api" ~/.local/bin/use-api
+ln -s "$PWD/cli/ai-call/skill" ~/.claude/skills/ai-call   # 讓 Claude Code 知道何時、怎麼用 ai-call
+use-api setup                            # 貼上金鑰，驗證後存起來
+```
+
+找不到 `ai-call`、`use-api` 指令時，確認 `~/.local/bin` 在 `PATH` 裡（例如在 `~/.bashrc` 加 `export PATH="$HOME/.local/bin:$PATH"`）。
 
 ## 安全設計
 

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# 可從 ~/.local/bin 用 symlink 呼叫；先解析 symlink 找到原始位置
+set -euo pipefail
+here="$(dirname "$(readlink -f "$0")")"
+exec node --disable-warning=ExperimentalWarning "$here/../cli/use-api/cli.ts" "$@"
