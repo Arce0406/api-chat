@@ -1,0 +1,37 @@
+[package]
+name = "api-chat"
+version = "0.1.0"
+description = "用自己的 Anthropic API 金鑰對話的桌面 App"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[lib]
+name = "api_chat_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+# 版本全部寫死（=），實際解析結果記在 Cargo.lock
+[dependencies]
+tauri = { version = "=2.12.5", features = [] }
+tauri-plugin-opener = "=2.7.2"
+tauri-plugin-dialog = "=2.8.4"
+keyring-core = "=1.0.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+# 金鑰存作業系統的鑰匙圈：macOS 鑰匙圈、Windows 認證管理員
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = { version = "=1.1.0", default-features = false }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

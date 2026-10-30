@@ -140,7 +140,7 @@ function CliPane() {
           </tr>
         </tbody>
       </table>
-      <p className="note">{desktop ? "安裝功能下一版加入。" : "瀏覽器開發版不能安裝命令列工具，要用桌面版。"}</p>
+      <p className="note">{desktop ? "Windows、macOS 的安裝功能下一版加入；Linux 可以照 GitHub 上的 README 手動安裝。" : "瀏覽器開發版不能安裝命令列工具。"}</p>
     </div>
   );
 }

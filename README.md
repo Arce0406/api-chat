@@ -7,7 +7,40 @@
 
 ## 狀態
 
-開發中。目前完成：對話介面（瀏覽器開發版）、命令列工具（Linux）。桌面外殼（Tauri）、金鑰存系統鑰匙圈、Windows／macOS 安裝檔在後續版本加入。
+開發中。目前完成：桌面版（Windows、macOS）、命令列工具（Linux）。Windows／macOS 版的命令列工具在下一版加入。
+
+## 安裝桌面版
+
+到 [Releases](https://github.com/Arce0406/api-chat/releases) 下載最新版：
+
+| 系統 | 檔案 |
+|---|---|
+| Windows 10／11 | `API.Chat_<版本>_x64-setup.exe` |
+| macOS 11 以上（Apple 晶片與 Intel） | `API.Chat_<版本>_universal.dmg` |
+
+安裝檔沒有付費簽章，第一次打開時系統會警告「無法確認開發者」，這是預期的。
+
+**Windows**
+
+1. 執行 `.exe`。出現藍色的「Windows 已保護您的電腦」時，按「其他資訊」→「仍要執行」。
+2. 安裝在自己的使用者帳號底下，不需要系統管理員權限。安裝完會出現在開始功能表。
+
+**macOS**
+
+1. 打開 `.dmg`，把 API Chat 拖到「應用程式」資料夾。
+2. 第一次打開會出現「無法打開」。按「完成」，然後到「系統設定 > 隱私權與安全性」，往下找到 API Chat，按「強制打開」（或「仍要打開」），再輸入電腦密碼。
+3. 如果出現「API Chat 已損毀，無法打開」，在「終端機」執行下面這行，再打開一次：
+
+   ```bash
+   xattr -cr "/Applications/API Chat.app"
+   ```
+
+4. 第一次讀取金鑰時，macOS 可能詢問是否允許 API Chat 使用鑰匙圈，選「永遠允許」。更新 App 之後可能會再問一次。
+
+**資料存在哪裡**
+
+- API 金鑰：Windows 認證管理員／macOS 鑰匙圈（項目名稱 `io.github.arce0406.apichat`）。
+- 對話、角色範本、用量：存在 App 內建網頁畫面的資料夾，只在這台電腦。位置依系統而定（Windows 一般在 `%LOCALAPPDATA%\io.github.arce0406.apichat`）。解除安裝不一定會刪除。
 
 ## 功能（第一版）
 
@@ -46,7 +79,8 @@ use-api setup                            # 貼上金鑰，驗證後存起來
 
 - 只連到 `https://api.anthropic.com`（網址寫死，畫面也用 CSP 限制連線對象）。
 - AI 回覆不可信：回覆裡的 HTML 一律當文字顯示、不載入外部圖片（避免透過圖片網址把對話內容帶出去）、連結只允許 http(s)／mailto 並用系統瀏覽器開，最後再經 DOMPurify 過濾。
-- 金鑰不存在對話資料庫裡。瀏覽器開發版只存在分頁的 sessionStorage，桌面版改存作業系統鑰匙圈。
+- 金鑰不存在對話資料庫裡。桌面版存在作業系統鑰匙圈；瀏覽器開發版只存在分頁的 sessionStorage。
+- 桌面版的視窗只能顯示 App 自己的畫面，其他網址一律擋下；連結用系統瀏覽器開，只允許 http、https、mailto。
 
 ## 開發
 
@@ -57,6 +91,13 @@ npm ci
 git config core.hooksPath .githooks   # 推送前自動跑 npm run check
 npm run dev                            # http://127.0.0.1:5310
 ```
+
+## 桌面版開發
+
+- Rust 部分在 `src-tauri/`。開發機不用裝 Rust：`npm run test:rust` 會在 docker 裡編譯並跑 Rust 測試（第一次會建映像，要幾分鐘）。
+- 有 Rust 與 Tauri 系統套件的電腦可以用 `npm run tauri dev` 開桌面版。
+- 安裝檔由 GitHub Actions 建置（`.github/workflows/release.yml`），只在發佈時手動觸發：Actions 分頁 →「建置安裝檔」→ Run workflow。完成後 Releases 會出現草稿，確認後再發佈。
+- 版本號在 `src-tauri/tauri.conf.json` 的 `version`（和 `package.json`、`src-tauri/Cargo.toml` 一起改）。
 
 ## 測試
 

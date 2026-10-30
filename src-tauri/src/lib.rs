@@ -1,0 +1,137 @@
+//! 桌面版外殼：視窗、金鑰（系統鑰匙圈）、存檔。介面與 API 呼叫都在網頁畫面（TypeScript）裡。
+
+mod keystore;
+
+use std::sync::OnceLock;
+
+use tauri::webview::NewWindowResponse;
+use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
+
+/// 鑰匙圈初始化失敗的原因（例如不支援的平台）；成功是 None
+static KEYSTORE_ERROR: OnceLock<Option<String>> = OnceLock::new();
+
+fn keystore_ready() -> Result<(), String> {
+    match KEYSTORE_ERROR.get() {
+        Some(None) => Ok(()),
+        Some(Some(reason)) => Err(reason.clone()),
+        None => Err("鑰匙圈還沒準備好，請重新開啟 App。".into()),
+    }
+}
+
+#[tauri::command]
+fn get_api_key() -> Result<Option<String>, String> {
+    keystore_ready()?;
+    keystore::get()
+}
+
+#[tauri::command]
+fn set_api_key(key: String) -> Result<(), String> {
+    keystore_ready()?;
+    keystore::set(&key)
+}
+
+#[tauri::command]
+fn remove_api_key() -> Result<(), String> {
+    keystore_ready()?;
+    keystore::remove()
+}
+
+/// 跳出「另存新檔」讓使用者選位置，再寫入文字。使用者取消時回傳 false。
+#[tauri::command]
+async fn save_text_file(app: tauri::AppHandle, file_name: String, content: String) -> Result<bool, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_file_name(&file_name)
+        .add_filter("Markdown", &["md"])
+        .blocking_save_file();
+    let Some(path) = picked else { return Ok(false) };
+    let path = path.into_path().map_err(|e| format!("無法使用這個位置：{e}"))?;
+    std::fs::write(&path, content).map_err(|e| format!("存檔失敗：{e}"))?;
+    Ok(true)
+}
+
+/// 視窗只能顯示 App 自己的畫面。回覆裡的連結由畫面攔下、改用系統瀏覽器開；
+/// 萬一有漏網的換頁（例如拖進檔案、被誘導的連結），在這裡擋掉。
+pub fn is_app_url(url: &Url) -> bool {
+    match url.scheme() {
+        // macOS／Linux：tauri://localhost
+        "tauri" => url.host_str() == Some("localhost"),
+        // Windows：http://tauri.localhost
+        "http" | "https" if url.host_str() == Some("tauri.localhost") => true,
+        // 開發模式：Vite 開發伺服器
+        "http" if cfg!(debug_assertions) => {
+            matches!(url.host_str(), Some("127.0.0.1") | Some("localhost")) && url.port() == Some(5310)
+        }
+        _ => false,
+    }
+}
+
+/// 可以交給系統瀏覽器（或郵件程式）開的連結
+pub fn is_external_link(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https" | "mailto") && !is_app_url(url)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let _ = KEYSTORE_ERROR.set(keystore::init().err());
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![get_api_key, set_api_key, remove_api_key, save_text_file])
+        .setup(|app| {
+            let handle = app.handle().clone();
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("API Chat")
+                .inner_size(1180.0, 800.0)
+                .min_inner_size(720.0, 520.0)
+                // 拖放交給網頁畫面處理（輸入框可以拖檔案進來）
+                .disable_drag_drop_handler()
+                .on_navigation(|url| is_app_url(url))
+                // 不在 App 裡開新視窗（例如中鍵點連結）；一般連結改用系統瀏覽器開
+                .on_new_window(move |url, _features| {
+                    if is_external_link(&url) {
+                        let _ = handle.opener().open_url(url.as_str(), None::<&str>);
+                    }
+                    NewWindowResponse::Deny
+                })
+                .build()?;
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("API Chat 啟動失敗");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn only_app_pages_can_load() {
+        assert!(is_app_url(&url("tauri://localhost/index.html")));
+        assert!(is_app_url(&url("http://tauri.localhost/")));
+        assert!(!is_app_url(&url("https://evil.example/")));
+        assert!(!is_app_url(&url("https://tauri.localhost.evil.example/")));
+        assert!(!is_app_url(&url("file:///C:/Users/a/secret.txt")));
+        assert!(!is_app_url(&url("tauri://evil/")));
+        assert!(!is_app_url(&url("http://127.0.0.1:8080/")));
+        assert!(!is_app_url(&url("javascript:alert(1)")));
+    }
+
+    #[test]
+    fn only_web_and_mail_links_go_to_the_browser() {
+        assert!(is_external_link(&url("https://www.anthropic.com/")));
+        assert!(is_external_link(&url("mailto:a@example.com")));
+        assert!(!is_external_link(&url("file:///etc/passwd")));
+        assert!(!is_external_link(&url("javascript:alert(1)")));
+        assert!(!is_external_link(&url("smb://server/share")));
+        assert!(!is_external_link(&url("tauri://localhost/index.html")));
+    }
+}

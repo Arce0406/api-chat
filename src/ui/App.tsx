@@ -259,7 +259,7 @@ export function App() {
     return (
       <div className="center-screen">
         <div className="card">
-          <h1>無法開啟本機資料</h1>
+          <h1>API Chat 無法啟動</h1>
           <p className="muted">{loadError}</p>
         </div>
       </div>

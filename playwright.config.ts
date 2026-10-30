@@ -6,6 +6,8 @@ export default defineConfig({
   testDir: process.env.E2E_REAL ? "test/real" : "test/e2e",
   timeout: 30_000,
   fullyParallel: true,
+  // 開發機常同時跑很多東西，平行數太高時頁面載入會逾時
+  workers: 4,
   reporter: [["list"]],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:5310",
