@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# 推送前的本地檢查（本 repo 不用 GitHub Actions 跑 PR 檢查）
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+npm run check
