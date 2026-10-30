@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test --disable-warning=ExperimentalWarning test/unit/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.cli.json",
+    "test": "node --test --disable-warning=ExperimentalWarning test/unit/*.test.ts test/cli/*/*.test.ts",
     "e2e": "scripts/e2e.sh",
     "check": "npm run typecheck && npm test && npm run build"
   },
