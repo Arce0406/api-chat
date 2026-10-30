@@ -1,4 +1,4 @@
-// 金鑰存放。目前只有檔案方式；macOS 鑰匙圈、Windows 在實機驗證後再加。
+// 金鑰存放：使用者資料夾的檔案，和 ai-call、桌面 App 共用。
 
 import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -55,8 +55,13 @@ export function fileStore(path: string): KeyStore {
       }
       try {
         mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+        // 檔案已存在時 writeFileSync 不會改權限：先收緊再寫入，避免新金鑰短暫被其他帳號讀到
+        try {
+          chmodSync(path, 0o600);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
         writeFileSync(path, `${KEY_VARIABLE}=${key}\n`, { mode: 0o600 });
-        chmodSync(path, 0o600); // 檔案已存在時 writeFileSync 不會改權限
       } catch (error) {
         throw new StoreError(`無法寫入 ${path}（${(error as NodeJS.ErrnoException).code}），請檢查權限`);
       }

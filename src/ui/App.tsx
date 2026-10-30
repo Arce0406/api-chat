@@ -32,6 +32,8 @@ export function App() {
   const [db, setDb] = useState<ChatDb | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState<string | null | undefined>(undefined);
+  // 金鑰檔讀不到（例如編碼不對、權限不足）時不擋住整個 App，改在輸入金鑰的畫面說明
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [templates, setTemplates] = useState<RoleTemplate[]>([]);
   const [usage, setUsage] = useState<UsageRecord[]>([]);
@@ -61,7 +63,10 @@ export function App() {
           opened.listTemplates(),
           opened.listUsage(),
           opened.getPreferences(),
-          platform.keyStore.get(),
+          platform.keyStore.get().catch((error: unknown) => {
+            setKeyError(error instanceof Error ? error.message : String(error));
+            return null;
+          }),
         ]);
         setDb(opened);
         replaceConversations(convs);
@@ -259,14 +264,23 @@ export function App() {
     return (
       <div className="center-screen">
         <div className="card">
-          <h1>無法開啟本機資料</h1>
+          <h1>API Chat 無法啟動</h1>
           <p className="muted">{loadError}</p>
         </div>
       </div>
     );
   }
   if (apiKey === undefined || !db) return <div className="center-screen muted">載入中…</div>;
-  if (apiKey === null) return <Onboarding onSaved={setApiKey} />;
+  if (apiKey === null)
+    return (
+      <Onboarding
+        problem={keyError}
+        onSaved={(key) => {
+          setKeyError(null);
+          setApiKey(key);
+        }}
+      />
+    );
 
   const settings: ChatSettings = active ? { model: active.model, effort: active.effort, system: active.system, templateId: active.templateId } : draft;
   const busyElsewhere = pending !== null && pending.conversationId !== activeId;

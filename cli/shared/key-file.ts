@@ -1,5 +1,5 @@
 // 命令列工具共用的金鑰檔位置與格式。ai-call、use-api 讀同一個檔，use-api setup 負責寫入。
-// 桌面 App 改存系統鑰匙圈後，這裡會改成向 App 取金鑰（見 Arce0406/api-chat 的後續 PR）。
+// 桌面 App 也讀寫同一個檔（src-tauri/src/keystore.rs），兩邊的位置與格式要一致。
 
 import { homedir } from "node:os";
 import { join } from "node:path";

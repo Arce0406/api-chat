@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatUsd, monthSummary, newId, type RoleTemplate, type UsageRecord } from "../core/chat.ts";
 import { PRICES_UPDATED_AT } from "../core/models.ts";
 import { platform } from "../platform/index.ts";
@@ -62,6 +62,10 @@ export function Settings(props: Props) {
 function KeyPane({ apiKey, onKeyChanged }: Props) {
   const [mode, setMode] = useState<"view" | "replace" | "confirm-remove">("view");
   const [error, setError] = useState<string | null>(null);
+  const [location, setLocation] = useState<string | null>(null);
+  useEffect(() => {
+    platform.keyStore.location?.().then(setLocation, () => setLocation(null));
+  }, []);
   return (
     <div className="stack">
       <h2>API 金鑰</h2>
@@ -78,6 +82,11 @@ function KeyPane({ apiKey, onKeyChanged }: Props) {
         </span>
       </div>
       <p className="muted small">{platform.keyStore.description} OpenAI、Gemini 之後再加。</p>
+      {location ? (
+        <p className="muted small">
+          存放位置：<code data-testid="key-location">{location}</code>
+        </p>
+      ) : null}
       {mode === "replace" ? (
         <KeyForm
           submitLabel="驗證並更換"
@@ -89,7 +98,7 @@ function KeyPane({ apiKey, onKeyChanged }: Props) {
       ) : null}
       {mode === "confirm-remove" ? (
         <div className="confirm-bar" role="alertdialog" aria-label="確認刪除金鑰">
-          <span>從這台電腦刪除金鑰？對話紀錄會保留，之後要重新輸入金鑰才能對話。</span>
+          <span>刪除存在這台電腦的金鑰？命令列工具（ai-call、use-api）用的是同一把，也會一起不能用。對話紀錄會保留。</span>
           <button
             type="button"
             className="btn danger"
@@ -140,7 +149,7 @@ function CliPane() {
           </tr>
         </tbody>
       </table>
-      <p className="note">{desktop ? "安裝功能下一版加入。" : "瀏覽器開發版不能安裝命令列工具，要用桌面版。"}</p>
+      <p className="note">{desktop ? "Windows、macOS 的安裝功能下一版加入；Linux 可以照 GitHub 上的 README 手動安裝。" : "瀏覽器開發版不能安裝命令列工具。"}</p>
     </div>
   );
 }

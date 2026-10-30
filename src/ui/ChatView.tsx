@@ -123,6 +123,7 @@ function Header(props: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [title, setTitle] = useState(conversation?.title ?? "");
   const [editingSystem, setEditingSystem] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const effortOk = supportsEffort(settings.model);
 
   const roleValue = settings.templateId ?? (settings.system.trim() ? CUSTOM : NONE);
@@ -215,7 +216,10 @@ function Header(props: Props) {
                   role="menuitem"
                   onClick={() => {
                     setMenuOpen(false);
-                    void platform.saveTextFile(exportFileName(conversation.title), exportMarkdown(conversation, modelLabel));
+                    setExportError(null);
+                    platform.saveTextFile(exportFileName(conversation.title), exportMarkdown(conversation, modelLabel)).catch((error: unknown) => {
+                      setExportError(`匯出失敗：${error instanceof Error ? error.message : String(error)}`);
+                    });
                   }}
                 >
                   匯出 Markdown
@@ -244,6 +248,14 @@ function Header(props: Props) {
           </button>
           <button type="button" className="btn ghost" onClick={() => setConfirmDelete(false)}>
             取消
+          </button>
+        </div>
+      ) : null}
+      {exportError ? (
+        <div className="confirm-bar" role="alert">
+          <span>{exportError}</span>
+          <button type="button" className="btn ghost" onClick={() => setExportError(null)}>
+            關閉
           </button>
         </div>
       ) : null}

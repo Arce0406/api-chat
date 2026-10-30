@@ -7,6 +7,8 @@ export interface KeyStore {
   remove(): Promise<void>;
   /** 給設定頁說明金鑰存在哪裡 */
   readonly description: string;
+  /** 金鑰檔的完整路徑（桌面版） */
+  location?: () => Promise<string>;
 }
 
 export interface Platform {
