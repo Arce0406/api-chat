@@ -247,7 +247,7 @@ function UsagePane({ usage }: { usage: UsageRecord[] }) {
       <p className="big" data-testid="usage-total">
         {formatUsd(summary.totalUsd)}
       </p>
-      {summary.unknown ? <p className="muted small">另有 {summary.unknown} 次回覆中途停止，費用無法計算。</p> : null}
+      {summary.unknown ? <p className="muted small">另有 {summary.unknown} 次費用無法計算（例如回覆中途停止）。</p> : null}
       <div className="bars" aria-label="每天花費">
         {Array.from({ length: days }, (_, i) => {
           const value = summary.byDay.get(i + 1) ?? 0;

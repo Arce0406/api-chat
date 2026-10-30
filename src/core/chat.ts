@@ -27,6 +27,8 @@ export interface ReplyMeta {
   stopReason?: string | null;
   /** 使用者按了停止 */
   stopped?: boolean;
+  /** 回覆到一半斷線或出錯，只收到部分內容 */
+  interrupted?: boolean;
   fallbackUsed?: boolean;
 }
 
@@ -111,7 +113,7 @@ export interface ApiMessage {
  */
 export function toApiMessages(messages: ChatMessage[]): ApiMessage[] {
   const result: ApiMessage[] = [];
-  for (const message of messages) {
+  for (const message of withoutRefusals(messages)) {
     if (message.role === "assistant") {
       if (!message.text.trim()) continue;
       result.push({ role: "assistant", content: message.text });
@@ -135,6 +137,19 @@ export function toApiMessages(messages: ChatMessage[]): ApiMessage[] {
     }
   }
   return result;
+}
+
+/** 拒答的那一問和回覆不再送出（官方建議丟掉拒答時的部分輸出；留著那一問也可能讓之後每輪都被拒） */
+function withoutRefusals(messages: ChatMessage[]): ChatMessage[] {
+  const kept: ChatMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "assistant" && message.meta?.stopReason === "refusal") {
+      if (kept[kept.length - 1]?.role === "user") kept.pop();
+      continue;
+    }
+    kept.push(message);
+  }
+  return kept;
 }
 
 function asBlocks(content: string | ApiContentBlock[]): ApiContentBlock[] {

@@ -24,6 +24,8 @@ import { Sidebar } from "./Sidebar.tsx";
 interface Pending {
   conversationId: string;
   text: string;
+  /** 重新產生中：畫面先藏起舊的最後一則回覆 */
+  replacesLast: boolean;
 }
 
 export function App() {
@@ -41,6 +43,14 @@ export function App() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const controllerRef = useRef<AbortController | null>(null);
+  // 串流結束時要拿「最新」的對話（期間可能被改名、換設定或刪除），所以清單同步存一份在 ref
+  const conversationsRef = useRef<Conversation[]>([]);
+  const pendingIdRef = useRef<string | null>(null);
+
+  const replaceConversations = useCallback((next: Conversation[]) => {
+    conversationsRef.current = next;
+    setConversations(next);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -54,7 +64,7 @@ export function App() {
           platform.keyStore.get(),
         ]);
         setDb(opened);
-        setConversations(convs);
+        replaceConversations(convs);
         setTemplates(tpls.sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")));
         setUsage(records);
         setPrefs(preferences);
@@ -64,7 +74,7 @@ export function App() {
         setLoadError(error instanceof Error ? error.message : String(error));
       }
     })();
-  }, []);
+  }, [replaceConversations]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -86,26 +96,48 @@ export function App() {
 
   const saveConversation = useCallback(
     async (conversation: Conversation) => {
-      setConversations((list) => [conversation, ...list.filter((c) => c.id !== conversation.id)]);
+      replaceConversations([conversation, ...conversationsRef.current.filter((c) => c.id !== conversation.id)]);
       await db?.putConversation(conversation);
     },
-    [db],
+    [db, replaceConversations],
   );
 
+  /**
+   * 送出請求並把回覆存進對話。
+   * - requestMessages：這次送給 API 的訊息（重新產生時不含最後一則回覆）。
+   * - replacesLast：重新產生。成功才取代舊回覆；失敗或停止都保留舊回覆。
+   */
   const runReply = useCallback(
-    async (conversation: Conversation) => {
+    async (conversation: Conversation, requestMessages: ChatMessage[], replacesLast: boolean) => {
       if (!db || !apiKey) return;
+      const id = conversation.id;
       const controller = new AbortController();
       controllerRef.current = controller;
-      setErrors(({ [conversation.id]: _, ...rest }) => rest);
-      setPending({ conversationId: conversation.id, text: "" });
+      pendingIdRef.current = id;
+      setErrors(({ [id]: _, ...rest }) => rest);
+      setPending({ conversationId: id, text: "", replacesLast });
 
       // 逐字更新畫面，但每個畫格最多更新一次
       let buffer = "";
       let frame = 0;
       const flush = () => {
         frame = 0;
-        setPending({ conversationId: conversation.id, text: buffer });
+        setPending({ conversationId: id, text: buffer, replacesLast });
+      };
+      const stopFrames = () => {
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+      };
+      const recordUsage = async (record: Omit<UsageRecord, "id" | "at" | "conversationId">) => {
+        const full: UsageRecord = { id: newId(), at: Date.now(), conversationId: id, ...record };
+        setUsage((list) => [...list, full]);
+        await db.addUsage(full);
+      };
+      /** 用最新的對話（保留期間的改名、設定）接上回覆；對話已被刪除就不存 */
+      const commit = async (reply: ChatMessage) => {
+        const latest = conversationsRef.current.find((c) => c.id === id);
+        if (!latest) return;
+        await saveConversation({ ...latest, messages: [...requestMessages, reply], updatedAt: Date.now() });
       };
 
       try {
@@ -114,7 +146,7 @@ export function App() {
           model: conversation.model,
           effort: conversation.effort,
           system: conversation.system,
-          messages: toApiMessages(conversation.messages),
+          messages: toApiMessages(requestMessages),
           signal: controller.signal,
           onText: (delta) => {
             buffer += delta;
@@ -122,7 +154,10 @@ export function App() {
           },
         });
         const cost = costUsd(result.usage);
-        const reply: ChatMessage = {
+        // 和加入回覆放在同一次畫面更新，避免回覆短暫出現兩次
+        stopFrames();
+        setPending(null);
+        await commit({
           id: newId(),
           role: "assistant",
           text: result.text,
@@ -135,36 +170,30 @@ export function App() {
             stopReason: result.stopReason,
             fallbackUsed: result.fallbackUsed,
           },
-        };
-        const record: UsageRecord = { id: newId(), at: Date.now(), conversationId: conversation.id, model: conversation.model, usage: result.usage, costUsd: cost };
-        // 和加入回覆放在同一次畫面更新，避免回覆短暫出現兩次
-        setPending(null);
-        await saveConversation({ ...conversation, messages: [...conversation.messages, reply], updatedAt: Date.now() });
-        setUsage((list) => [...list, record]);
-        await db.addUsage(record);
+        });
+        await recordUsage({ model: conversation.model, usage: result.usage, costUsd: cost });
       } catch (error) {
-        if (isAbort(error)) {
-          // 停止時拿不到用量；有收到文字就保留，費用記為「無法計算」
-          const record: UsageRecord = { id: newId(), at: Date.now(), conversationId: conversation.id, model: conversation.model, usage: [], costUsd: null };
-          setUsage((list) => [...list, record]);
-          await db.addUsage(record);
-          setPending(null);
-          if (buffer.trim()) {
-            const partial: ChatMessage = {
-              id: newId(),
-              role: "assistant",
-              text: buffer,
-              createdAt: Date.now(),
-              meta: { model: conversation.model, usage: [], costUsd: null, stopped: true },
-            };
-            await saveConversation({ ...conversation, messages: [...conversation.messages, partial], updatedAt: Date.now() });
-          }
-        } else {
-          setErrors((all) => ({ ...all, [conversation.id]: describeError(error) }));
+        stopFrames();
+        setPending(null);
+        const aborted = isAbort(error);
+        // 停止或中途斷線時拿不到用量，記為「無法計算」；還沒開始就失敗（例如金鑰無效）不收費，不記
+        if (aborted || buffer) await recordUsage({ model: conversation.model, usage: [], costUsd: null });
+        if (buffer.trim() && !replacesLast) {
+          await commit({
+            id: newId(),
+            role: "assistant",
+            text: buffer,
+            createdAt: Date.now(),
+            meta: { model: conversation.model, usage: [], costUsd: null, ...(aborted ? { stopped: true } : { interrupted: true }) },
+          });
+        }
+        if (!aborted && conversationsRef.current.some((c) => c.id === id)) {
+          setErrors((all) => ({ ...all, [id]: describeError(error) }));
         }
       } finally {
-        if (frame) cancelAnimationFrame(frame);
+        stopFrames();
         controllerRef.current = null;
+        pendingIdRef.current = null;
         setPending(null);
       }
     },
@@ -193,19 +222,18 @@ export function App() {
         setActiveId(conversation.id);
       }
       await saveConversation(conversation);
-      await runReply(conversation);
+      await runReply(conversation, conversation.messages, false);
     },
     [active, draft, runReply, saveConversation],
   );
 
+  /** 重新產生最後一則回覆；最後一則是使用者訊息時（例如上次出錯）就是重試 */
   const regenerate = useCallback(async () => {
     if (!active) return;
     const last = active.messages[active.messages.length - 1];
-    const messages = last?.role === "assistant" ? active.messages.slice(0, -1) : active.messages;
-    const conversation = { ...active, messages, updatedAt: Date.now() };
-    await saveConversation(conversation);
-    await runReply(conversation);
-  }, [active, runReply, saveConversation]);
+    const replacesLast = last?.role === "assistant";
+    await runReply(active, replacesLast ? active.messages.slice(0, -1) : active.messages, replacesLast);
+  }, [active, runReply]);
 
   const changeSettings = useCallback(
     async (next: ChatSettings) => {
@@ -218,11 +246,13 @@ export function App() {
 
   const deleteConversation = useCallback(
     async (id: string) => {
-      setConversations((list) => list.filter((c) => c.id !== id));
+      // 正在回覆的對話被刪掉：先停止，回覆結束時也不會再寫回去
+      if (pendingIdRef.current === id) controllerRef.current?.abort();
+      replaceConversations(conversationsRef.current.filter((c) => c.id !== id));
       if (activeId === id) setActiveId(null);
       await db?.deleteConversation(id);
     },
-    [activeId, db],
+    [activeId, db, replaceConversations],
   );
 
   if (loadError) {
@@ -290,6 +320,7 @@ export function App() {
           templates={templates}
           models={MODEL_CHOICES}
           pendingText={pending && pending.conversationId === activeId ? pending.text : null}
+          pendingReplacesLast={pending?.replacesLast ?? false}
           busyElsewhere={busyElsewhere}
           error={activeId ? (errors[activeId] ?? null) : null}
           onSend={send}

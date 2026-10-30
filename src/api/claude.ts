@@ -107,8 +107,14 @@ export function describeError(error: unknown): string {
   if (error instanceof Anthropic.PermissionDeniedError) return "這把金鑰沒有權限使用這個模型。";
   if (error instanceof Anthropic.RateLimitError) return "超過速率上限，請稍後再試。";
   if (error instanceof Anthropic.APIConnectionError) return "連不上 Anthropic，請確認網路。";
+  if (error instanceof Anthropic.APIError && error.status === 413) {
+    return "這次要送的內容太大（通常是附檔太多）。請開新對話，或減少附檔。";
+  }
   if (error instanceof Anthropic.BadRequestError) {
     if (/credit balance/i.test(error.message)) return "API 額度不足。請到 Claude Console 的 Billing 儲值。";
+    if (/prompt is too long|too many tokens|context window/i.test(error.message)) {
+      return "這段對話太長，超過模型一次能讀的長度。請開新對話（可以先從「⋯」匯出保存）。";
+    }
     return `請求被拒絕：${error.message}`;
   }
   if (error instanceof Anthropic.APIError) {

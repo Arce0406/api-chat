@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { classifyFile, decodeText, LIMITS, toBase64 } from "../../src/core/attachments.ts";
+import { classifyFile, decodeText, estimateRequestBytes, LIMITS, toBase64 } from "../../src/core/attachments.ts";
 import { modelLabel, supportsEffort } from "../../src/core/catalog.ts";
+import { costUsd } from "../../src/core/models.ts";
 import {
   dateGroup,
   deriveTitle,
@@ -154,5 +155,30 @@ describe("模型名稱", () => {
   it("Haiku 不支援思考深度", () => {
     assert.equal(supportsEffort("claude-haiku-4-5"), false);
     assert.equal(supportsEffort("claude-sonnet-5-5"), true);
+  });
+});
+
+describe("審查後補的情境", () => {
+  it("拒答的那一問和回覆不會再送出", () => {
+    const refused: ChatMessage = { ...msg("assistant", "半段"), meta: { model: "m", usage: [], costUsd: 0, stopReason: "refusal" } };
+    const result = toApiMessages([msg("user", "一"), msg("assistant", "答一"), msg("user", "被拒的問題"), refused, msg("user", "換個問法")]);
+    assert.deepEqual(result.map((m) => m.role), ["user", "assistant", "user"]);
+    assert.deepEqual(result[2]?.content, [{ type: "text", text: "換個問法" }]);
+  });
+
+  it("請求大小：圖片與 PDF 以 base64 長度計，文字以 UTF-8 位元組計", () => {
+    const bytes = estimateRequestBytes([msg("user", "中文", [image, pdf, text])]);
+    // "中文"=6、image "aW1n"=4、pdf "cGRm"=4、"第一行\n第二行"=19
+    assert.equal(bytes, 6 + 4 + 4 + 19);
+  });
+
+  it("拒答備援時逐段用各自模型的價格計費", () => {
+    // Sonnet 5.5 段：1000×2 + 50×10；備援 Sonnet 5 段：1200×2 + 300×10（每百萬 token）
+    const cost = costUsd([
+      { model: "claude-sonnet-5-5", inputTokens: 1000, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { model: "claude-sonnet-5-20260101", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    ]);
+    assert.ok(cost !== null && Math.abs(cost - (2500 + 5400) / 1e6) < 1e-12);
+    assert.equal(costUsd([{ model: "claude-unknown-9", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }]), null);
   });
 });

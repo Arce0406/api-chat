@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { kindLabel, formatBytes } from "../core/attachments.ts";
+import { estimateRequestBytes, formatBytes, kindLabel, REQUEST_LIMIT } from "../core/attachments.ts";
 import { EFFORT_CHOICES, modelLabel, supportsEffort, type ModelChoice } from "../core/catalog.ts";
 import { exportFileName, exportMarkdown, formatUsd, totalTokens, type Attachment, type ChatMessage, type Conversation, type Effort, type RoleTemplate } from "../core/chat.ts";
 import { platform } from "../platform/index.ts";
@@ -20,6 +20,7 @@ interface Props {
   templates: RoleTemplate[];
   models: ModelChoice[];
   pendingText: string | null;
+  pendingReplacesLast: boolean;
   busyElsewhere: boolean;
   error: string | null;
   onSend: (text: string, attachments: Attachment[]) => void;
@@ -37,7 +38,10 @@ export function ChatView(props: Props) {
   const { conversation, settings, pendingText } = props;
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-  const messages = conversation?.messages ?? [];
+  const allMessages = conversation?.messages ?? [];
+  // 重新產生中先藏起舊回覆；成功才會被取代，失敗或停止就再出現
+  const hideLast = pendingText !== null && props.pendingReplacesLast && allMessages[allMessages.length - 1]?.role === "assistant";
+  const messages = hideLast ? allMessages.slice(0, -1) : allMessages;
 
   useEffect(() => {
     const el = listRef.current;
@@ -80,7 +84,7 @@ export function ChatView(props: Props) {
           </div>
         ) : null}
       </div>
-      <Composer streaming={streaming} busyElsewhere={props.busyElsewhere} onSend={props.onSend} onStop={props.onStop} />
+      <Composer streaming={streaming} busyElsewhere={props.busyElsewhere} historyBytes={estimateRequestBytes(allMessages)} onSend={props.onSend} onStop={props.onStop} />
     </main>
   );
 }
@@ -328,8 +332,9 @@ function AssistantMessage({ message, canRegenerate, onRegenerate }: { message: C
     <div className="msg assistant" data-testid="assistant-message">
       <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} />
       {meta?.stopped ? <p className="note">已停止。這次的費用無法計算（仍會計入你的 Anthropic 帳單）。</p> : null}
+      {meta?.interrupted ? <p className="note">回覆中斷，只收到這些內容。這次的費用無法計算。</p> : null}
       {meta?.stopReason === "max_tokens" ? <p className="note">回覆太長被截斷了，可以請它「繼續」。</p> : null}
-      {meta?.stopReason === "refusal" ? <p className="note">模型拒絕回答這個問題。</p> : null}
+      {meta?.stopReason === "refusal" ? <p className="note">模型拒絕回答這個問題。這一問和這則回覆不會帶進之後的對話。</p> : null}
       {meta?.fallbackUsed ? <p className="note">原模型拒答，這則改由 {modelLabel(meta.servedModel ?? "")} 回答。</p> : null}
       <div className="meta">
         {meta ? <span>{modelLabel(meta.servedModel ?? meta.model)}</span> : null}
@@ -353,7 +358,8 @@ function AssistantMessage({ message, canRegenerate, onRegenerate }: { message: C
 }
 
 function StreamingMessage({ text, model }: { text: string; model: string }) {
-  const html = useMemo(() => renderMarkdown(text), [text]);
+  // 串流中每個畫格都會重畫，先不做程式碼高亮，完成後再高亮
+  const html = useMemo(() => renderMarkdown(text, { highlight: false }), [text]);
   return (
     <div className="msg assistant streaming" data-testid="streaming-message" aria-live="polite">
       {text ? <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} /> : <p className="muted">{modelLabel(model)} 思考中…</p>}
@@ -361,14 +367,16 @@ function StreamingMessage({ text, model }: { text: string; model: string }) {
   );
 }
 
-function Composer(props: { streaming: boolean; busyElsewhere: boolean; onSend: (text: string, attachments: Attachment[]) => void; onStop: () => void }) {
+function Composer(props: { streaming: boolean; busyElsewhere: boolean; historyBytes: number; onSend: (text: string, attachments: Attachment[]) => void; onStop: () => void }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [problems, setProblems] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
+  // 讀檔、縮圖要一點時間；這段期間不能送出，否則附檔會被漏掉
+  const [reading, setReading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
-  const canSend = !props.streaming && !props.busyElsewhere && (text.trim().length > 0 || attachments.length > 0);
+  const canSend = !props.streaming && !props.busyElsewhere && reading === 0 && (text.trim().length > 0 || attachments.length > 0);
 
   useEffect(() => {
     const el = textRef.current;
@@ -379,13 +387,24 @@ function Composer(props: { streaming: boolean; busyElsewhere: boolean; onSend: (
 
   async function addFiles(files: File[]) {
     if (files.length === 0) return;
-    const { added, errors } = await readAttachments(files, attachments);
-    setAttachments((list) => [...list, ...added]);
-    setProblems(errors);
+    setReading((n) => n + 1);
+    try {
+      const { added, errors } = await readAttachments(files, attachments);
+      setAttachments((list) => [...list, ...added]);
+      setProblems(errors);
+    } finally {
+      setReading((n) => n - 1);
+    }
   }
 
   function submit() {
     if (!canSend) return;
+    // 每次都會重送整段對話（含之前的附檔），總量超過 API 單次上限就整段對話都送不出去
+    const total = props.historyBytes + estimateRequestBytes([{ id: "", role: "user", text, attachments, createdAt: 0 }]);
+    if (total > REQUEST_LIMIT) {
+      setProblems([`這段對話的附檔加起來太大（約 ${formatBytes(total)}，上限 ${formatBytes(REQUEST_LIMIT)}）。請開新對話再附檔，或移除部分附檔。`]);
+      return;
+    }
     props.onSend(text.trim(), attachments);
     setText("");
     setAttachments([]);
@@ -456,7 +475,7 @@ function Composer(props: { streaming: boolean; busyElsewhere: boolean; onSend: (
             e.target.value = "";
           }}
         />
-        <span className="grow muted small">文字檔、圖片、PDF</span>
+        <span className="grow muted small">{reading ? "讀取附檔中…" : "文字檔、圖片、PDF"}</span>
         {props.streaming ? (
           <button type="button" className="btn primary" onClick={props.onStop}>
             停止

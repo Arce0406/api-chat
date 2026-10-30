@@ -240,13 +240,14 @@ test("對話管理：改名、搜尋、匯出 Markdown、刪除", async ({ page 
   expect(markdown).toContain("# 給 John 的回信");
   expect(markdown).toContain("## Sonnet 5.5\n\nDear John…");
 
+  const costBefore = await page.getByTestId("month-cost").innerText();
   await page.getByRole("button", { name: "更多動作" }).click();
   await page.getByRole("menuitem", { name: "刪除" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "刪除" }).click();
   await expect(page.locator(".conv-item")).toHaveText(["Excel 公式問題"]);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("新對話");
   // 刪掉對話，本月花費不變
-  await expect(page.getByTestId("month-cost")).not.toContainText("US$0.000");
+  await expect(page.getByTestId("month-cost")).toHaveText(costBefore);
 });
 
 test("模型、思考深度、角色範本", async ({ page }) => {
@@ -311,4 +312,66 @@ test("設定：用量頁、更換與刪除金鑰、深色模式", async ({ page 
   await page.reload();
   await expect(page.locator("#api-key-input")).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+});
+
+test("大圖片會縮小成長邊 1568 的 JPEG", async ({ page }) => {
+  const api = await fakeApi(page);
+  await setupKey(page);
+  const png = await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 3000;
+    canvas.height = 2000;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#336699";
+    ctx.fillRect(0, 0, 3000, 2000);
+    const blob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), "image/png"));
+    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+  });
+  await page.locator("#file-input").setInputFiles([{ name: "大圖.png", mimeType: "image/png", buffer: Buffer.from(png) }]);
+  await expect(page.locator(".composer .chip")).toHaveCount(1);
+  await send(page, "看圖");
+  await expect(page.getByTestId("assistant-message")).toBeVisible();
+  const block = (api.requests[0]!.messages as Array<{ content: Array<{ type: string; source: { media_type: string; data: string } }> }>)[0]!.content[0]!;
+  expect(block.source.media_type).toBe("image/jpeg");
+  const size = await page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/jpeg;base64,${data}`;
+    await img.decode();
+    return [img.naturalWidth, img.naturalHeight];
+  }, block.source.data);
+  expect(size).toEqual([1568, 1045]);
+});
+
+test("整段對話的附檔超過上限時擋下，並建議開新對話", async ({ page }) => {
+  const api = await fakeApi(page);
+  await setupKey(page);
+  const pdf = (mb: number) => ({ name: `${mb}MB.pdf`, mimeType: "application/pdf", buffer: Buffer.alloc(mb * 1024 * 1024, 0x41) });
+  await page.locator("#file-input").setInputFiles([pdf(15)]);
+  await expect(page.locator(".composer .chip")).toHaveCount(1);
+  await send(page, "第一份");
+  await expect(page.getByTestId("assistant-message")).toBeVisible();
+  await page.locator("#file-input").setInputFiles([pdf(10)]);
+  await expect(page.locator(".composer .chip")).toHaveCount(1);
+  await send(page, "第二份");
+  await expect(page.getByRole("alert")).toContainText("這段對話的附檔加起來太大");
+  await expect(page.locator(".composer .chip")).toHaveCount(1);
+  expect(api.requests).toHaveLength(1);
+});
+
+test("讀取附檔期間不能送出，避免附檔被漏掉", async ({ page }) => {
+  await fakeApi(page);
+  await setupKey(page);
+  await page.locator("#composer-input").fill("看檔案");
+  await page.evaluate(() => {
+    // 讓讀檔變慢
+    const original = Blob.prototype.arrayBuffer;
+    Blob.prototype.arrayBuffer = function () {
+      return new Promise((r) => setTimeout(() => r(original.call(this)), 800));
+    };
+  });
+  await page.locator("#file-input").setInputFiles([{ name: "a.txt", mimeType: "text/plain", buffer: Buffer.from("內容") }]);
+  await expect(page.getByRole("button", { name: "送出" })).toBeDisabled();
+  await expect(page.locator(".composer")).toContainText("讀取附檔中");
+  await expect(page.locator(".composer .chip")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "送出" })).toBeEnabled();
 });

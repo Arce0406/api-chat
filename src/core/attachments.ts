@@ -1,17 +1,40 @@
 // 附檔的種類判斷與大小限制（純函式，讀檔在 ui 層）。
 
-import type { AttachmentKind } from "./chat.ts";
+import type { AttachmentKind, ChatMessage } from "./chat.ts";
 
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 
+/** 選檔時的上限。圖片之後會縮小（見 IMAGE_MAX_EDGE），所以原始檔可以比 API 上限大 */
 export const LIMITS: Record<AttachmentKind, number> = {
-  image: 5 * 1024 * 1024,
+  image: 30 * 1024 * 1024,
   pdf: 20 * 1024 * 1024,
   text: 1024 * 1024,
 };
 
-/** 一則訊息所有附檔加起來的上限（API 單次請求上限 32 MB，base64 會再變大約 1/3） */
+/** 一則訊息所有附檔加起來的上限（原始大小） */
 export const MESSAGE_TOTAL_LIMIT = 20 * 1024 * 1024;
+
+/** 長邊超過這個像素就縮小（官方文件：超過會被伺服器端縮小，多送只是浪費） */
+export const IMAGE_MAX_EDGE = 1568;
+
+/** 單張圖片送出前的上限（API 每張 5 MB；保守以 base64 後不超過 5 MB 計） */
+export const IMAGE_SEND_LIMIT = Math.floor((5 * 1024 * 1024 * 3) / 4);
+
+/** 一次請求的大小上限（API 為 32 MB，留一些空間給 JSON 與文字） */
+export const REQUEST_LIMIT = 30 * 1024 * 1024;
+
+/** 估算送出整段對話時的請求大小：圖片、PDF 以 base64 長度計，文字以 UTF-8 位元組計 */
+export function estimateRequestBytes(messages: ChatMessage[]): number {
+  const encoder = new TextEncoder();
+  let total = 0;
+  for (const message of messages) {
+    total += encoder.encode(message.text).length;
+    for (const attachment of message.attachments ?? []) {
+      total += attachment.kind === "text" ? encoder.encode(attachment.data).length : attachment.data.length;
+    }
+  }
+  return total;
+}
 
 const TEXT_EXTENSIONS = new Set([
   "txt", "md", "markdown", "csv", "tsv", "json", "jsonl", "yaml", "yml", "toml", "xml", "html", "htm", "css",

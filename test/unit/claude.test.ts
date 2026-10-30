@@ -83,6 +83,8 @@ describe("streamReply", () => {
       streamReply({ ...base, model: "claude-haiku-4-5", signal: new AbortController().signal, onText: () => {}, fetch: fakeFetch(reply) }).catch((e: unknown) => describeError(e));
     assert.match(await run({ status: 401, error: { type: "authentication_error", message: "invalid x-api-key" } }) as string, /金鑰無效/);
     assert.match(await run({ status: 400, error: { type: "invalid_request_error", message: "Your credit balance is too low" } }) as string, /額度不足/);
+    assert.match(await run({ status: 413, error: { type: "request_too_large", message: "Request exceeds the maximum allowed number of bytes" } }) as string, /內容太大/);
+    assert.match(await run({ status: 400, error: { type: "invalid_request_error", message: "prompt is too long: 250000 tokens > 200000 maximum" } }) as string, /對話太長/);
   });
 });
 
