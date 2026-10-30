@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-// 在 mini-pc 用 docker 映像 mcr.microsoft.com/playwright:v1.56.1-noble 執行（見 scripts/e2e.sh）
+// 用 Playwright 官方 docker 映像 mcr.microsoft.com/playwright:v1.56.1-noble 執行（見 scripts/e2e.sh）
 export default defineConfig({
   // E2E_REAL=1：用真的金鑰打真的 API（會花一點錢），只在手動驗證時跑
   testDir: process.env.E2E_REAL ? "test/real" : "test/e2e",
