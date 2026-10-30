@@ -98,7 +98,7 @@ function KeyPane({ apiKey, onKeyChanged }: Props) {
       ) : null}
       {mode === "confirm-remove" ? (
         <div className="confirm-bar" role="alertdialog" aria-label="確認刪除金鑰">
-          <span>從這台電腦刪除金鑰？對話紀錄會保留，之後要重新輸入金鑰才能對話。</span>
+          <span>刪除存在這台電腦的金鑰？命令列工具（ai-call、use-api）用的是同一把，也會一起不能用。對話紀錄會保留。</span>
           <button
             type="button"
             className="btn danger"

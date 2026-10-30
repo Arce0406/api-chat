@@ -19,12 +19,17 @@ pub fn key_file_path(env: impl Fn(&str) -> Option<String>, home: &Path) -> PathB
 /// 解析 KEY=VALUE（忽略空行、# 註解、export 前綴、成對引號），和命令列工具的 parseEnvFile 相同
 fn parse_value(content: &str, variable: &str) -> Option<String> {
     let mut found = None;
+    // 記事本、PowerShell 存成「UTF-8 含 BOM」時開頭會多一個看不見的字元
+    let content = content.strip_prefix('\u{feff}').unwrap_or(content);
     for raw in content.lines() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let line = line.strip_prefix("export ").map(str::trim_start).unwrap_or(line);
+        let line = match line.strip_prefix("export") {
+            Some(rest) if rest.starts_with(char::is_whitespace) => rest.trim_start(),
+            _ => line,
+        };
         let Some((name, value)) = line.split_once('=') else { continue };
         if name.trim() != variable {
             continue;
@@ -49,6 +54,9 @@ pub fn read(path: &Path) -> Result<Option<String>, String> {
     match fs::read_to_string(path) {
         Ok(content) => Ok(parse_value(&content, KEY_VARIABLE)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+            Err(format!("金鑰檔 {} 不是 UTF-8 文字檔", path.display()))
+        }
         Err(e) => Err(format!("讀不到金鑰檔 {}：{e}", path.display())),
     }
 }
@@ -65,7 +73,13 @@ pub fn write(path: &Path, key: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         create_private_dir(dir).map_err(|e| format!("無法建立資料夾 {}：{e}", dir.display()))?;
     }
-    write_private_file(path, &format!("{KEY_VARIABLE}={key}\n")).map_err(|e| format!("無法寫入 {}：{e}", path.display()))
+    // 先寫到暫存檔再改名蓋過去：中途出錯也不會留下空的金鑰檔
+    let temp = path.with_extension(format!("env.tmp-{}", std::process::id()));
+    let result = write_private_file(&temp, &format!("{KEY_VARIABLE}={key}\n")).and_then(|()| fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result.map_err(|e| format!("無法寫入 {}：{e}", path.display()))
 }
 
 /// 刪除金鑰檔；是連結時只刪連結本身。原本就沒有也算成功。
@@ -135,6 +149,10 @@ mod tests {
         assert_eq!(parse_value("ANTHROPIC_API_KEY = \"sk-c\"\r\n", KEY_VARIABLE).as_deref(), Some("sk-c"));
         assert_eq!(parse_value("OTHER=1\nANTHROPIC_API_KEY=\n", KEY_VARIABLE), None);
         assert_eq!(parse_value("ANTHROPIC_API_KEY_OLD=x\n", KEY_VARIABLE), None);
+        assert_eq!(parse_value("\u{feff}ANTHROPIC_API_KEY=sk-bom\r\n", KEY_VARIABLE).as_deref(), Some("sk-bom"));
+        assert_eq!(parse_value("export\tANTHROPIC_API_KEY=sk-tab\n", KEY_VARIABLE).as_deref(), Some("sk-tab"));
+        assert_eq!(parse_value("exportANTHROPIC_API_KEY=x\n", KEY_VARIABLE), None);
+        assert_eq!(parse_value("ANTHROPIC_API_KEY=a=b\nANTHROPIC_API_KEY=sk-last\n", KEY_VARIABLE).as_deref(), Some("sk-last"));
     }
 
     #[test]
@@ -149,6 +167,21 @@ mod tests {
         remove(&path).unwrap();
         assert_eq!(read(&path).unwrap(), None);
         remove(&path).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unreadable_file_is_reported_not_treated_as_missing() {
+        let dir = temp_dir("utf16");
+        let path = dir.join("anthropic.env");
+        // Windows PowerShell 5.1 用 > 寫出的 UTF-16
+        let utf16: Vec<u8> = "ANTHROPIC_API_KEY=sk".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        fs::write(&path, [&[0xff, 0xfe][..], &utf16].concat()).unwrap();
+        assert!(read(&path).unwrap_err().contains("不是 UTF-8"));
+        // 重新輸入金鑰會覆寫成正常的檔案，暫存檔不會留下
+        write(&path, "sk-ant-fixed").unwrap();
+        assert_eq!(read(&path).unwrap().as_deref(), Some("sk-ant-fixed"));
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::remove_dir_all(dir).unwrap();
     }
 

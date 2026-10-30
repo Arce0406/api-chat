@@ -37,7 +37,7 @@
 
 **資料存在哪裡**
 
-- API 金鑰：使用者資料夾的 `.config/api-chat/anthropic.env`（Windows 是 `C:\Users\<你>\.config\api-chat\anthropic.env`），只有你的帳號能讀。命令列工具也讀這個檔，設定一次就好。在 App 的「設定 > API 金鑰」可以看到實際位置。解除安裝**不會**刪除金鑰；要刪除請先在 App 裡按「刪除」。
+- API 金鑰：使用者資料夾的 `.config/api-chat/anthropic.env`（Windows 是 `C:\Users\<你>\.config\api-chat\anthropic.env`），只有你的帳號能讀。命令列工具也讀這個檔，設定一次就好。在 App 的「設定 > API 金鑰」可以看到實際位置。App 只在啟動時讀一次金鑰，用命令列換了金鑰要重開 App。解除安裝**不會**刪除金鑰；要刪除請先在 App 裡按「刪除」。
 - 建議在 Claude Console 幫這把金鑰設每月花費上限：萬一金鑰外洩，損失也有上限。
 - 對話、角色範本、用量：存在 App 內建網頁畫面的資料夾，只在這台電腦。位置依系統而定（Windows 一般在 `%LOCALAPPDATA%\io.github.arce0406.apichat`）。解除安裝不一定會刪除。
 

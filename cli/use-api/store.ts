@@ -55,8 +55,13 @@ export function fileStore(path: string): KeyStore {
       }
       try {
         mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+        // 檔案已存在時 writeFileSync 不會改權限：先收緊再寫入，避免新金鑰短暫被其他帳號讀到
+        try {
+          chmodSync(path, 0o600);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
         writeFileSync(path, `${KEY_VARIABLE}=${key}\n`, { mode: 0o600 });
-        chmodSync(path, 0o600); // 檔案已存在時 writeFileSync 不會改權限
       } catch (error) {
         throw new StoreError(`無法寫入 ${path}（${(error as NodeJS.ErrnoException).code}），請檢查權限`);
       }
