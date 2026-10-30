@@ -1,4 +1,4 @@
-// 從 Arce0406/dev-tools 的 ai-call/src/models.ts 複製（2026-10-30）。命令列工具搬進本 repo 後改成共用這一份。
+// App 與命令列工具（cli/ai-call）共用的價格表。
 
 // 模型別名、所屬 provider 與價格。
 // 價格是各家官方公布的 API 牌價（美元／每百萬 token），會變動，更新時改這裡並更新 PRICES_UPDATED_AT。
