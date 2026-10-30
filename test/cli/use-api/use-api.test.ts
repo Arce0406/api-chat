@@ -7,7 +7,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { EXIT, run, type CliDeps } from "../../../cli/use-api/cli.ts";
 import { ENV_OVERRIDES, helperCommand, spawnClaude } from "../../../cli/use-api/launch.ts";
-import { fileStore, maskKey, parseEnvFile } from "../../../cli/use-api/store.ts";
+import { defaultKeyPath, fileStore, maskKey, parseEnvFile } from "../../../cli/use-api/store.ts";
+import { keyFilePath } from "../../../cli/ai-call/credentials.ts";
 import { validateKey } from "../../../cli/use-api/validate.ts";
 
 const KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz";
@@ -265,4 +266,12 @@ test("fileStore：沒有檔案時 read 回傳 null、remove 回傳 false", () =>
   const store = fileStore(join(mkdtempSync(join(tmpdir(), "use-api-store-")), "none.env"));
   assert.equal(store.read(), null);
   assert.equal(store.remove(), false);
+});
+
+test("ai-call 與 use-api 讀同一個預設金鑰檔（有沒有設 XDG_CONFIG_HOME 都一樣）", () => {
+  for (const env of [{}, { XDG_CONFIG_HOME: "/tmp/xdg-test" }] as NodeJS.ProcessEnv[]) {
+    assert.equal(defaultKeyPath(env), keyFilePath("anthropic", env));
+  }
+  assert.equal(defaultKeyPath({ XDG_CONFIG_HOME: "/tmp/xdg-test" }), "/tmp/xdg-test/api-chat/anthropic.env");
+  assert.equal(defaultKeyPath({ API_CHAT_KEY_FILE: "/k.env" }), "/k.env");
 });

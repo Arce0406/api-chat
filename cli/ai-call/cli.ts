@@ -42,7 +42,7 @@ ${describeModels()}
   - 從 Claude Code 的 Bash 工具呼叫時，Opus／Fable 或長輸入可能超過預設 2 分鐘逾時，請把 timeout 設到 600000
 
 結束碼：0 成功、1 API 錯誤或模型拒答、2 參數錯誤、3 金鑰問題
-金鑰：~/.config/api-chat/<provider>.env，和 use-api 共用；用 use-api setup 設定（可用 API_CHAT_KEY_FILE 指定 Anthropic 金鑰檔）
+金鑰：${"$"}XDG_CONFIG_HOME/api-chat/<provider>.env（預設 ~/.config/api-chat/<provider>.env），和 use-api 共用；用 use-api setup 設定（可用 API_CHAT_KEY_FILE 指定 Anthropic 金鑰檔）
 用量紀錄：~/.local/state/ai-call/usage.jsonl（可用 AI_CALL_LOG 改路徑）`;
 
 export interface CliDeps {

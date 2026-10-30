@@ -8,7 +8,7 @@
 
 需要 Node.js 22.18 以上（直接執行 `.ts`，不需要編譯）。安裝方式見 [repo 首頁的 README](../../README.md#命令列工具)。
 
-金鑰和 `use-api` 共用，用 `use-api setup` 設定，存在 `~/.config/api-chat/anthropic.env`（權限 600）。可以用 `API_CHAT_KEY_FILE` 指定別的金鑰檔，內容一行：
+金鑰和 `use-api` 共用，用 `use-api setup` 設定，存在 `$XDG_CONFIG_HOME/api-chat/anthropic.env`（預設 `~/.config/api-chat/anthropic.env`，權限 600）。可以用 `API_CHAT_KEY_FILE` 指定別的金鑰檔，內容一行：
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...

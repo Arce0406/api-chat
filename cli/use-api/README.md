@@ -1,6 +1,6 @@
 # use-api
 
-Claude 訂閱額度用完時，用**自己的 Anthropic API 金鑰**接續同一段 Claude Code 對話，改扣 API 額度（例如 Max 方案每月附的 API 額度）。名稱就是字面意思：改用 API 計費接著做。
+Claude 訂閱額度用完時，用**自己的 Anthropic API 金鑰**接續同一段 Claude Code 對話，改扣 API 額度。名稱就是字面意思：改用 API 計費接著做。
 
 ```bash
 # 訂閱額度用完了：先在 Claude Code 裡 /exit，然後在同一個資料夾
@@ -39,7 +39,7 @@ use-api --continue        # 接續剛才的對話，改用 API 金鑰計費
 
 ## 限制（Claude Code 本身的限制）
 
-- **用 API 金鑰時，手機遙控（Remote Control）和 claude.ai 連接器不能用。** 在外面時改開 claude.ai 的 usage credits。
+- **用 API 金鑰時，手機遙控（Remote Control）和 claude.ai 連接器不能用。** 需要遙控時，改用 claude.ai 方案的 usage credits（另外計費）。
 - 不能在對話進行中切換，要先 `/exit` 再用 `use-api --continue` 接續。
 - `--continue` 只會接續互動模式開的對話；`claude -p` 開的要用 `--resume <id>`（2026-10-30 實測觀察）。
 - Claude Desktop App 的 Code 分頁不讀這個設定，只適用終端機的 `claude`。

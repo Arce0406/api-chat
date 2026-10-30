@@ -17,7 +17,7 @@ export interface LoadedKey {
 export function loadApiKey(provider: ProviderName, env: NodeJS.ProcessEnv): LoadedKey {
   const path = keyFilePath(provider, env);
   const variable = KEY_VARIABLE[provider];
-  const hint = "請先執行 use-api setup 設定金鑰";
+  const hint = `請執行 use-api setup，或在這個檔案寫一行 ${variable}=<金鑰>`;
 
   let content: string;
   try {

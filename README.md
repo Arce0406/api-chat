@@ -32,12 +32,15 @@
 
 ```bash
 git clone https://github.com/Arce0406/api-chat.git && cd api-chat
-npm ci                                   # .npmrc 已設 ignore-scripts，套件不能在安裝時執行腳本
+npm ci --omit=dev                        # 只裝執行需要的套件；.npmrc 已設 ignore-scripts，套件不能在安裝時執行腳本
+mkdir -p ~/.local/bin ~/.claude/skills
 ln -s "$PWD/bin/ai-call" ~/.local/bin/ai-call
 ln -s "$PWD/bin/use-api" ~/.local/bin/use-api
 ln -s "$PWD/cli/ai-call/skill" ~/.claude/skills/ai-call   # 讓 Claude Code 知道何時、怎麼用 ai-call
 use-api setup                            # 貼上金鑰，驗證後存起來
 ```
+
+找不到 `ai-call`、`use-api` 指令時，確認 `~/.local/bin` 在 `PATH` 裡（例如在 `~/.bashrc` 加 `export PATH="$HOME/.local/bin:$PATH"`）。
 
 ## 安全設計
 
